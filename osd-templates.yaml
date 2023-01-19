@@ -1,0 +1,90 @@
+schemaVersion: 2.1.0
+metadata:
+  name: osd-templates
+projects:
+  - git:
+      remotes:
+        origin: 'git@gitlab.com:BhfLab/osd/osd-templates.git'
+    name: osd-templates
+components:
+  - attributes:
+      app.kubernetes.io/name: python
+      che-theia.eclipse.org/vscode-extensions:
+        - 'relative:extension/resources/github_com/microsoft/vscode-python/releases/download/2020_7_94776/ms-python-release.vsix'
+        - 'relative:extension/resources/github_com/fabric8-analytics/fabric8-analytics-vscode-extension/releases/download/0_3_6/fabric8-analytics-0.3.6.vsix'
+      che-theia.eclipse.org/vscode-preferences:
+        python.globalModuleInstallation: true
+    container:
+      args:
+        - sh
+        - '-c'
+        - '${PLUGIN_REMOTE_ENDPOINT_EXECUTABLE}'
+      env:
+        - name: PLUGIN_REMOTE_ENDPOINT_EXECUTABLE
+          value: /remote-endpoint/plugin-remote-endpoint
+        - name: THEIA_PLUGINS
+          value: 'local-dir:///plugins/sidecars/python'
+      endpoints:
+        - name: uvicorn
+          targetPort: 8080
+          exposure: public
+      image: 'image-registry.openshift-image-registry.svc:5000/openshift/devnumerix:helm'
+      memoryLimit: 2G
+      mountSources: true
+      sourceMapping: /projects
+      volumeMounts:
+        - name: venv
+          path: /home/user/.venv
+        - name: local
+          path: /home/user/.local
+        - name: remote-endpoint
+          path: /remote-endpoint
+        - name: plugins
+          path: /plugins
+    name: python
+  - name: venv
+    volume:
+      size: 1G
+  - name: local
+    volume:
+      size: 1G
+commands:
+  - id: 1-upgrade-python-packages
+    exec:
+      workingDir: '${PROJECT_SOURCE}'
+      commandLine: >
+        pip install -r requirements.txt
+      component: python
+      group:
+        kind: build
+      label: Install python packages
+  - id: 2-start-web-server
+    exec:
+      workingDir: '${PROJECT_SOURCE}/Lib'
+      commandLine: source ~/.bashrc && python -m uvicorn srv:app --host 0.0.0.0 --port 8080 --reload
+      component: python
+      group:
+        kind: run
+      label: Start web server
+  - id: git-rebase-and-push
+    exec:
+      workingDir: '${PROJECT_SOURCE}'
+      commandLine: git fetch origin && git pull --rebase && git push
+      component: python
+      label: 'Git: Rebase and push'
+  - id: git-rename-branch
+    exec:
+      workingDir: '${PROJECT_SOURCE}'
+      commandLine: >
+        read -p 'New branch Name:' BRANCH_NAME
+        && git branch -m $BRANCH_NAME
+        && git branch $BRANCH_NAME --unset-upstream
+      component: python
+      label: 'Git: Rename branch'
+  - id: git-push-skip-build
+    exec:
+      workingDir: '${PROJECT_SOURCE}'
+      commandLine: >
+        git push -o ci.variable="PREVIOUS_SHA=$(git log --pretty=format:'%H' -n 2 | tail -n 1)"
+      component: python
+      label: 'Git: Push and skip build'
